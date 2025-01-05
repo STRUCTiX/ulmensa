@@ -1,5 +1,6 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, collections::BTreeSet, fmt::Display};
 
+use prettytable::{row, Cell, Row, Table};
 use regex::Regex;
 
 #[tokio::main]
@@ -24,10 +25,13 @@ async fn main() {
         .unwrap();
 
     let plan = Mealplan::from(&resp);
+
+    println!("{}", plan.unwrap());
 }
 
 pub struct Mealplan {
-    meals: Vec<Meal>,
+    meals: BTreeSet<Meal>,
+    filter: Filter,
 }
 
 impl Mealplan {
@@ -35,31 +39,69 @@ impl Mealplan {
         let dom = tl::parse(input, tl::ParserOptions::default()).unwrap();
         let parser = dom.parser();
 
-        let mut all_meals = Vec::new();
+        let mut all_meals = BTreeSet::new();
         for el in dom.get_elements_by_class_name("fltl") {
             let node = el.get(parser).unwrap();
             let n = node.inner_text(parser);
-            let meals = n
+            let mut meals = n
                 .split("&nbsp")
                 .filter(|&x| !x.is_empty() && x != ";")
                 .filter_map(Meal::from)
-                .collect::<Vec<Meal>>();
-            all_meals.extend(meals);
+                .collect::<BTreeSet<Meal>>();
+            all_meals.append(&mut meals);
         }
 
         if all_meals.is_empty() {
             return None;
         }
 
-        Some(Mealplan { meals: all_meals })
+        Some(Mealplan {
+            meals: all_meals,
+            filter: Filter::default(),
+        })
+    }
+
+    pub fn add_filter(&mut self, filter: Filter) {
+        self.filter = filter;
     }
 }
 
+impl Display for Mealplan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut table = Table::new();
+        table.add_row(row!["Beschreibung", "CO2"]);
+
+        for d in &self.meals {
+            table.add_row(Row::new(vec![
+                Cell::new(&d.name),
+                Cell::new(&format!("{}", d.co2)).style_spec("r"),
+            ]));
+        }
+
+        write!(f, "{}", table)
+    }
+}
+
+#[derive(PartialEq)]
 pub struct Meal {
     name: String,
     co2: i32,
     nutritional_value: NutritionalValue,
 }
+
+impl Ord for Meal {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+impl PartialOrd for Meal {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for Meal {}
 
 impl Meal {
     pub fn from(input: &str) -> Option<Self> {
@@ -72,7 +114,7 @@ impl Meal {
             .filter(|&x| !x.is_empty() && !x.starts_with("Nährwertangaben"))
             .collect::<Vec<&str>>();
 
-        let name_co2 = split[0].split_once("CO2").unwrap();
+        let name_co2 = split[0].split_once("CO2")?;
         let name = name_co2.0;
         let co2 = re_co2
             .captures(name_co2.1)?
@@ -98,7 +140,7 @@ impl Meal {
             .captures_iter(split[3])
             .map(|c| {
                 let (_, [f]) = c.extract();
-                f
+                f.replace(",", ".")
             })
             .filter_map(|f| f.parse::<f64>().ok())
             .collect::<Vec<f64>>();
@@ -107,13 +149,13 @@ impl Meal {
             .captures_iter(split[4])
             .map(|c| {
                 let (_, [f]) = c.extract();
-                f
+                f.replace(",", ".")
             })
             .filter_map(|f| f.parse::<f64>().ok())
             .collect::<Vec<f64>>();
 
         let (_, [salt]) = re_gram.captures(split[5])?.extract();
-        let salt = salt.parse::<f64>().unwrap();
+        let salt = salt.replace(",", ".").parse::<f64>().ok()?;
 
         Some(Meal {
             name: name.to_string(),
@@ -132,6 +174,7 @@ impl Meal {
     }
 }
 
+#[derive(PartialEq, PartialOrd)]
 pub struct NutritionalValue {
     energy_kj: f64,
     energy_kcal: f64,
@@ -150,5 +193,21 @@ impl Display for NutritionalValue {
             "Energy: {} kJ/ {} kcal, Protein: {}, Fat: {} (saturated: {}), Carb: {} (sugar: {}), Salt: {}",
             self.energy_kj, self.energy_kcal, self.protein, self.fat, self.fat_saturated, self.carb, self.sugar, self.salt
         )
+    }
+}
+
+pub struct Filter {
+    vegetarian_only: bool,
+    pretty_print: bool,
+    oneline: bool,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self {
+            vegetarian_only: false,
+            pretty_print: true,
+            oneline: false,
+        }
     }
 }
