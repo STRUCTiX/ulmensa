@@ -23,18 +23,35 @@ async fn main() {
         .await
         .unwrap();
 
-    let dom = tl::parse(&resp, tl::ParserOptions::default()).unwrap();
-    let parser = dom.parser();
+    let plan = Mealplan::from(&resp);
+}
 
-    for el in dom.get_elements_by_class_name("fltl") {
-        let node = el.get(parser).unwrap();
-        let n = node.inner_text(parser);
-        n.split("&nbsp")
-            .filter(|&x| !x.is_empty() && x != ";")
-            .for_each(|e| {
-                println!("{e}");
-                let _ = Meal::from(e);
-            });
+pub struct Mealplan {
+    meals: Vec<Meal>,
+}
+
+impl Mealplan {
+    pub fn from(input: &str) -> Option<Self> {
+        let dom = tl::parse(input, tl::ParserOptions::default()).unwrap();
+        let parser = dom.parser();
+
+        let mut all_meals = Vec::new();
+        for el in dom.get_elements_by_class_name("fltl") {
+            let node = el.get(parser).unwrap();
+            let n = node.inner_text(parser);
+            let meals = n
+                .split("&nbsp")
+                .filter(|&x| !x.is_empty() && x != ";")
+                .filter_map(Meal::from)
+                .collect::<Vec<Meal>>();
+            all_meals.extend(meals);
+        }
+
+        if all_meals.is_empty() {
+            return None;
+        }
+
+        Some(Mealplan { meals: all_meals })
     }
 }
 
