@@ -1,12 +1,14 @@
+use regex::Regex;
 use scraper::{Element, Html, Selector};
 
 #[derive(Debug)]
 struct NutritionalInfo {
-    energy: String,
-    protein: String,
-    fat: String,
-    carbohydrates: String,
-    salt: String,
+    energy_kj: f64,
+    energy_kcal: f64,
+    protein: f64,
+    fat: Vec<f64>,
+    carbohydrates: Vec<f64>,
+    salt: f64,
 }
 
 #[derive(Debug)]
@@ -19,6 +21,7 @@ struct Prices {
 #[derive(Debug)]
 struct Dish {
     name: String,
+    co2: i32,
     dietary_info: Vec<String>,
     prices: Prices,
     nutrition: NutritionalInfo,
@@ -50,42 +53,71 @@ fn extract_prices(price_text: &str) -> Prices {
     }
 }
 
-fn extract_nutritional_info(element: scraper::ElementRef) -> NutritionalInfo {
-    let table_selector = Selector::parse("table").unwrap();
-    let row_selector = Selector::parse("tr").unwrap();
-    let cell_selector = Selector::parse("td").unwrap();
+fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, NutritionalInfo)> {
+    let re_co2 = Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap();
+    let re_energy = Regex::new(r"([0-9,]+) kJ \/ ([0-9,]+) kcal").unwrap();
+    let re_gram = Regex::new(r"([0-9,]+) g").unwrap();
+    let split = input
+        .split("\n")
+        .map(|x| x.trim())
+        .filter(|&x| !x.is_empty() && !x.starts_with("Nährwertangaben"))
+        .collect::<Vec<&str>>();
 
-    let table = element.select(&table_selector).next().unwrap();
-    let mut nutrition_data = std::collections::HashMap::new();
+    let name_co2 = split[0].split_once("CO2")?;
+    let name = name_co2.0;
+    let co2 = re_co2
+        .captures(name_co2.1)?
+        .get(1)?
+        .as_str()
+        .replace(".", "")
+        .parse::<i32>()
+        .ok()?;
 
-    for row in table.select(&row_selector).skip(1) {
-        // Skip header
-        let cells: Vec<String> = row
-            .select(&cell_selector)
-            .map(|cell| cell.text().collect::<String>().trim().to_string())
-            .collect();
+    let (_, [kj, kcal]) = re_energy.captures(split[1])?.extract();
+    let kj = kj.replace(",", ".").parse::<f64>().ok()?;
+    let kcal = kcal.replace(",", ".").parse::<f64>().ok()?;
 
-        if cells.len() >= 2 {
-            nutrition_data.insert(cells[0].clone(), cells[1].clone());
-        }
-    }
+    let protein = re_gram
+        .captures(split[2])?
+        .get(1)?
+        .as_str()
+        .replace(",", ".")
+        .parse::<f64>()
+        .ok()?;
 
-    NutritionalInfo {
-        energy: nutrition_data
-            .get("Energie")
-            .unwrap_or(&String::new())
-            .clone(),
-        protein: nutrition_data
-            .get("Protein")
-            .unwrap_or(&String::new())
-            .clone(),
-        fat: nutrition_data.get("Fett").unwrap_or(&String::new()).clone(),
-        carbohydrates: nutrition_data
-            .get("Kohlenhydrate")
-            .unwrap_or(&String::new())
-            .clone(),
-        salt: nutrition_data.get("Salz").unwrap_or(&String::new()).clone(),
-    }
+    let fat = re_gram
+        .captures_iter(split[3])
+        .map(|c| {
+            let (_, [f]) = c.extract();
+            f.replace(",", ".")
+        })
+        .filter_map(|f| f.parse::<f64>().ok())
+        .collect::<Vec<f64>>();
+
+    let carbohydrates = re_gram
+        .captures_iter(split[4])
+        .map(|c| {
+            let (_, [f]) = c.extract();
+            f.replace(",", ".")
+        })
+        .filter_map(|f| f.parse::<f64>().ok())
+        .collect::<Vec<f64>>();
+
+    let (_, [salt]) = re_gram.captures(split[5])?.extract();
+    let salt = salt.replace(",", ".").parse::<f64>().ok()?;
+
+    Some((
+        name.to_string(),
+        co2,
+        NutritionalInfo {
+            energy_kj: kj,
+            energy_kcal: kcal,
+            protein,
+            fat,
+            carbohydrates,
+            salt,
+        },
+    ))
 }
 
 pub fn parse_menu(html_content: &str) -> Vec<Section> {
@@ -156,22 +188,18 @@ pub fn parse_menu(html_content: &str) -> Vec<Section> {
                             guest: 0.0,
                         });
 
-                    //let nutrition = extract_nutritional_info(elem_ref);
-                    let n = NutritionalInfo {
-                        energy: "a".to_string(),
-                        protein: "a".to_string(),
-                        fat: "a".to_string(),
-                        carbohydrates: "a".to_string(),
-                        salt: "a".to_string(),
-                    };
-
-                    if let Some(section) = &mut current_section {
-                        section.dishes.push(Dish {
-                            name: dish_text,
-                            dietary_info,
-                            prices,
-                            nutrition: n,
-                        });
+                    if let Some((dish, co2, nutrition)) =
+                        extract_name_co2_nutritional_info(&dish_text)
+                    {
+                        if let Some(section) = &mut current_section {
+                            section.dishes.push(Dish {
+                                name: dish,
+                                co2,
+                                dietary_info,
+                                prices,
+                                nutrition,
+                            });
+                        }
                     }
                 }
             }
@@ -192,8 +220,8 @@ pub fn display_menu(menu: &[Section]) {
         println!("{}", "-".repeat(section.name.len()));
 
         for dish in &section.dishes {
-            let name = dish.name.split_once("\n").unwrap().0;
-            println!("\n• {}", name);
+            println!("\n• {}", dish.name);
+            println!("  CO2: {}", dish.co2);
 
             if !dish.dietary_info.is_empty() {
                 println!("  Dietary Info: {}", dish.dietary_info.join(", "));
@@ -205,10 +233,13 @@ pub fn display_menu(menu: &[Section]) {
             );
 
             println!("  Nutritional Information:");
-            println!("    - Energy: {}", dish.nutrition.energy);
+            println!(
+                "    - Energy: {}kj/{}kcal",
+                dish.nutrition.energy_kj, dish.nutrition.energy_kcal
+            );
             println!("    - Protein: {}", dish.nutrition.protein);
-            println!("    - Fat: {}", dish.nutrition.fat);
-            println!("    - Carbohydrates: {}", dish.nutrition.carbohydrates);
+            println!("    - Fat: {:#?}", dish.nutrition.fat);
+            println!("    - Carbohydrates: {:#?}", dish.nutrition.carbohydrates);
             println!("    - Salt: {}", dish.nutrition.salt);
         }
     }
