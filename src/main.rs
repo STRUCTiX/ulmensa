@@ -1,15 +1,19 @@
+use time::OffsetDateTime;
+
 mod lib;
 
 #[tokio::main]
 async fn main() {
     let client = reqwest::Client::new();
+
+    let date = OffsetDateTime::now_utc().date().to_string();
     let form = [
         ("func", "make_spl"),
         ("locId", "1"),
-        ("date", "2025-01-14"),
+        ("date", &date),
         ("lang", "de"),
-        ("startThisWeek", "2025-01-14"),
-        ("startNextWeek", "2025-01-14"),
+        ("startThisWeek", &date),
+        ("startNextWeek", &date),
     ];
     let resp = client
         .post("https://sw-ulm-spl51.maxmanager.xyz/inc/ajax-php_konnektor.inc.php")
