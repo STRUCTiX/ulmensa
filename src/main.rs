@@ -25,11 +25,6 @@ async fn main() {
         .await
         .unwrap();
 
-    //let plan = Mealplan::from(&resp);
-
-    //println!("{}", plan.unwrap());
-
     let menu = lib::parse_menu(&resp);
-    lib::display_menu(&menu);
     println!("{}", lib::display_menu_table(&menu));
 }

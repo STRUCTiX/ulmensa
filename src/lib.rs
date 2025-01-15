@@ -1,9 +1,16 @@
 use std::collections::HashSet;
 
+use once_cell::sync::Lazy;
 use prettytable::{row, Cell, Row, Table};
 use regex::Regex;
-use scraper::{Element, Html, Selector};
+use scraper::{Html, Selector};
 
+static RE_CO2: Lazy<Regex> = Lazy::new(|| Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap());
+static RE_ENERGY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"([0-9,]+) kJ \/ ([0-9,]+) kcal").unwrap());
+static RE_GRAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"([0-9,]+) g").unwrap());
+
+#[allow(dead_code)]
 #[derive(Debug)]
 struct NutritionalInfo {
     energy_kj: f64,
@@ -57,9 +64,9 @@ fn extract_prices(price_text: &str) -> Prices {
 }
 
 fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, NutritionalInfo)> {
-    let re_co2 = Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap();
-    let re_energy = Regex::new(r"([0-9,]+) kJ \/ ([0-9,]+) kcal").unwrap();
-    let re_gram = Regex::new(r"([0-9,]+) g").unwrap();
+    //let re_co2 = Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap();
+    //let re_energy = Regex::new(r"([0-9,]+) kJ \/ ([0-9,]+) kcal").unwrap();
+    //let re_gram = Regex::new(r"([0-9,]+) g").unwrap();
     let split = input
         .split("\n")
         .map(|x| x.trim())
@@ -68,7 +75,7 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
 
     let name_co2 = split[0].split_once("CO2")?;
     let name = name_co2.0;
-    let co2 = re_co2
+    let co2 = RE_CO2
         .captures(name_co2.1)?
         .get(1)?
         .as_str()
@@ -76,11 +83,11 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
         .parse::<i32>()
         .ok()?;
 
-    let (_, [kj, kcal]) = re_energy.captures(split[1])?.extract();
+    let (_, [kj, kcal]) = RE_ENERGY.captures(split[1])?.extract();
     let kj = kj.replace(",", ".").parse::<f64>().ok()?;
     let kcal = kcal.replace(",", ".").parse::<f64>().ok()?;
 
-    let protein = re_gram
+    let protein = RE_GRAM
         .captures(split[2])?
         .get(1)?
         .as_str()
@@ -88,7 +95,7 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
         .parse::<f64>()
         .ok()?;
 
-    let fat = re_gram
+    let fat = RE_GRAM
         .captures_iter(split[3])
         .map(|c| {
             let (_, [f]) = c.extract();
@@ -97,7 +104,7 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
         .filter_map(|f| f.parse::<f64>().ok())
         .collect::<Vec<f64>>();
 
-    let carbohydrates = re_gram
+    let carbohydrates = RE_GRAM
         .captures_iter(split[4])
         .map(|c| {
             let (_, [f]) = c.extract();
@@ -106,7 +113,7 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
         .filter_map(|f| f.parse::<f64>().ok())
         .collect::<Vec<f64>>();
 
-    let (_, [salt]) = re_gram.captures(split[5])?.extract();
+    let (_, [salt]) = RE_GRAM.captures(split[5])?.extract();
     let salt = salt.replace(",", ".").parse::<f64>().ok()?;
 
     Some((
@@ -126,7 +133,6 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
 pub fn parse_menu(html_content: &str) -> Vec<Section> {
     let document = Html::parse_document(html_content);
     let section_selector = Selector::parse("div.gruppenkopf").unwrap();
-    let dish_selector = Selector::parse("div.splMeal").unwrap();
     let name_selector = Selector::parse("div.gruppenname").unwrap();
     let dish_text_selector = Selector::parse("div[style*='width:92%']").unwrap();
     let icon_selector = Selector::parse("img").unwrap();
@@ -217,45 +223,9 @@ pub fn parse_menu(html_content: &str) -> Vec<Section> {
     menu
 }
 
-pub fn display_menu(menu: &[Section]) {
-    for section in menu {
-        println!("\n{}:", section.name);
-        println!("{}", "-".repeat(section.name.len()));
-
-        for dish in &section.dishes {
-            println!("\n• {}", dish.name);
-            println!("  CO2: {}", dish.co2);
-
-            if !dish.dietary_info.is_empty() {
-                println!(
-                    "  Dietary Info: {}",
-                    dish.dietary_info
-                        .iter()
-                        .fold(String::new(), |acc, el| acc + ", " + el)
-                );
-            }
-
-            println!(
-                "  Prices: {:.2}€ (Student) | {:.2}€ (Employee) | {:.2}€ (Guest)",
-                dish.prices.student, dish.prices.employee, dish.prices.guest
-            );
-
-            println!("  Nutritional Information:");
-            println!(
-                "    - Energy: {}kj/{}kcal",
-                dish.nutrition.energy_kj, dish.nutrition.energy_kcal
-            );
-            println!("    - Protein: {}", dish.nutrition.protein);
-            println!("    - Fat: {:#?}", dish.nutrition.fat);
-            println!("    - Carbohydrates: {:#?}", dish.nutrition.carbohydrates);
-            println!("    - Salt: {}", dish.nutrition.salt);
-        }
-    }
-}
-
 pub fn display_menu_table(menu: &[Section]) -> String {
     let mut table = Table::new();
-    table.add_row(row!["Kategorie", "Gericht", "CO2", "Info", "Preis"]);
+    table.add_row(row!["Kategorie", "Gericht", "CO2", "Info", "kcal", "Preis"]);
     for section in menu {
         for dish in &section.dishes {
             table.add_row(Row::new(vec![
@@ -268,6 +238,7 @@ pub fn display_menu_table(menu: &[Section]) -> String {
                         .iter()
                         .fold(String::new(), |acc, el| acc + el + ", "),
                 ),
+                Cell::new(&format!("{:.2}", dish.nutrition.energy_kcal)),
                 Cell::new(&format!(
                     "{:.2}€|{:.2}€|{:.2}€",
                     dish.prices.student, dish.prices.employee, dish.prices.guest
