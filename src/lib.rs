@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use prettytable::{row, Cell, Row, Table};
 use regex::Regex;
 use scraper::{Element, Html, Selector};
 
@@ -22,7 +25,7 @@ struct Prices {
 struct Dish {
     name: String,
     co2: i32,
-    dietary_info: Vec<String>,
+    dietary_info: HashSet<String>,
     prices: Prices,
     nutrition: NutritionalInfo,
 }
@@ -172,7 +175,7 @@ pub fn parse_menu(html_content: &str) -> Vec<Section> {
                         .text()
                         .collect::<String>();
 
-                    let dietary_info: Vec<String> = elem_ref
+                    let dietary_info: HashSet<String> = elem_ref
                         .select(&icon_selector)
                         .filter_map(|icon| icon.value().attr("title"))
                         .map(String::from)
@@ -224,7 +227,12 @@ pub fn display_menu(menu: &[Section]) {
             println!("  CO2: {}", dish.co2);
 
             if !dish.dietary_info.is_empty() {
-                println!("  Dietary Info: {}", dish.dietary_info.join(", "));
+                println!(
+                    "  Dietary Info: {}",
+                    dish.dietary_info
+                        .iter()
+                        .fold(String::new(), |acc, el| acc + ", " + el)
+                );
             }
 
             println!(
@@ -243,4 +251,30 @@ pub fn display_menu(menu: &[Section]) {
             println!("    - Salt: {}", dish.nutrition.salt);
         }
     }
+}
+
+pub fn display_menu_table(menu: &[Section]) -> String {
+    let mut table = Table::new();
+    table.add_row(row!["Kategorie", "Gericht", "CO2", "Info", "Preis"]);
+    for section in menu {
+        for dish in &section.dishes {
+            table.add_row(Row::new(vec![
+                Cell::new(&section.name),
+                Cell::new(&dish.name),
+                Cell::new(&format!("{}g", dish.co2)),
+                Cell::new(
+                    &dish
+                        .dietary_info
+                        .iter()
+                        .fold(String::new(), |acc, el| acc + el + ", "),
+                ),
+                Cell::new(&format!(
+                    "{:.2}€|{:.2}€|{:.2}€",
+                    dish.prices.student, dish.prices.employee, dish.prices.guest
+                )),
+            ]));
+        }
+    }
+
+    table.to_string()
 }

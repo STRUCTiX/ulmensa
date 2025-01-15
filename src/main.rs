@@ -31,4 +31,5 @@ async fn main() {
 
     let menu = lib::parse_menu(&resp);
     lib::display_menu(&menu);
+    println!("{}", lib::display_menu_table(&menu));
 }
