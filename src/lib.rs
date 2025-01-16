@@ -52,6 +52,7 @@ pub struct Mealplan {
 
 pub enum Format {
     Table,
+    TableNutrition,
     Json,
 }
 
@@ -152,6 +153,7 @@ impl Mealplan {
     pub fn display(&self, format: Format) -> String {
         match format {
             Format::Table => display_menu_table(&self.menu),
+            Format::TableNutrition => display_menu_table_nutrition(&self.menu),
             Format::Json => serde_json::to_string_pretty(&self.menu).unwrap(),
         }
     }
@@ -173,6 +175,54 @@ fn display_menu_table(menu: &[Section]) -> String {
                         .fold(String::new(), |acc, el| acc + el + ", "),
                 ),
                 Cell::new(&format!("{:.2}", dish.nutrition.energy_kcal)),
+                Cell::new(&format!(
+                    "{:.2}€|{:.2}€|{:.2}€",
+                    dish.prices.student, dish.prices.employee, dish.prices.guest
+                )),
+            ]));
+        }
+    }
+
+    table.to_string()
+}
+
+fn display_menu_table_nutrition(menu: &[Section]) -> String {
+    let mut table = Table::new();
+    table.add_row(row![
+        "Kategorie",
+        "Gericht",
+        "CO2",
+        "Info",
+        "kcal",
+        "Kohlenhydrate (Zucker)",
+        "Protein",
+        "Fett (ges.)",
+        "Salz",
+        "Preis"
+    ]);
+    for section in menu {
+        for dish in &section.dishes {
+            table.add_row(Row::new(vec![
+                Cell::new(&section.name),
+                Cell::new(&dish.name),
+                Cell::new(&format!("{}g", dish.co2)),
+                Cell::new(
+                    &dish
+                        .dietary_info
+                        .iter()
+                        .fold(String::new(), |acc, el| acc + el + ", "),
+                ),
+                Cell::new(&format!("{:.2}", dish.nutrition.energy_kcal)),
+                Cell::new(&format!(
+                    "{:.2}g ({:.2}g)",
+                    dish.nutrition.carbohydrates[0], dish.nutrition.carbohydrates[1]
+                )),
+                Cell::new(&format!("{:.2}g", dish.nutrition.protein)),
+                Cell::new(&format!(
+                    "{:.2}g ({:.2}g)",
+                    dish.nutrition.fat[0], dish.nutrition.fat[1]
+                )),
+                Cell::new(&format!("{:.2}g", dish.nutrition.salt)),
                 Cell::new(&format!(
                     "{:.2}€|{:.2}€|{:.2}€",
                     dish.prices.student, dish.prices.employee, dish.prices.guest

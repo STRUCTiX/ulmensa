@@ -34,6 +34,8 @@ async fn main() {
     let menu = Mealplan::parse_menu(&resp);
     let format = if args.json {
         Format::Json
+    } else if args.nutritional_info {
+        Format::TableNutrition
     } else {
         Format::Table
     };
