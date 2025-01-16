@@ -1,6 +1,7 @@
-use time::OffsetDateTime;
-
+mod cli;
 mod lib;
+
+use time::OffsetDateTime;
 
 #[tokio::main]
 async fn main() {
