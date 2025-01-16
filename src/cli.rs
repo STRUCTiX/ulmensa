@@ -9,7 +9,15 @@ pub struct Args {
     #[arg(short, long, default_value_t = false)]
     pub nutritional_info: bool,
 
-    /// Specify the number of days ahead to display
+    /// Specify the number of days ahead to display.
     #[arg(short, long, default_value_t = 0)]
     pub days: u8,
+
+    /// Output the meal plan in JSON format.
+    #[arg(short, long, default_value_t = false)]
+    pub json: bool,
+}
+
+pub fn get_args() -> Args {
+    Args::parse()
 }

@@ -1,13 +1,18 @@
 mod cli;
-mod lib;
 
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
+use ulmensa_lib::{Format, Mealplan};
 
 #[tokio::main]
 async fn main() {
+    let args = cli::get_args();
     let client = reqwest::Client::new();
 
-    let date = OffsetDateTime::now_utc().date().to_string();
+    let days = Duration::days(args.days as i64);
+    let date = OffsetDateTime::now_utc()
+        .saturating_add(days)
+        .date()
+        .to_string();
     let form = [
         ("func", "make_spl"),
         ("locId", "1"),
@@ -26,6 +31,11 @@ async fn main() {
         .await
         .unwrap();
 
-    let menu = lib::parse_menu(&resp);
-    println!("{}", lib::display_menu_table(&menu));
+    let menu = Mealplan::parse_menu(&resp);
+    let format = if args.json {
+        Format::Json
+    } else {
+        Format::Table
+    };
+    println!("{}", menu.display(format));
 }

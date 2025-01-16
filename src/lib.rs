@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use prettytable::{row, Cell, Row, Table};
 use regex::Regex;
 use scraper::{Html, Selector};
+use serde::{Deserialize, Serialize};
 
 static RE_CO2: Lazy<Regex> = Lazy::new(|| Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap());
 static RE_ENERGY: Lazy<Regex> =
@@ -11,7 +12,7 @@ static RE_ENERGY: Lazy<Regex> =
 static RE_GRAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"([0-9,]+) g").unwrap());
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct NutritionalInfo {
     energy_kj: f64,
     energy_kcal: f64,
@@ -21,14 +22,14 @@ struct NutritionalInfo {
     salt: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Prices {
     student: f32,
     employee: f32,
     guest: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Dish {
     name: String,
     co2: i32,
@@ -37,10 +38,149 @@ struct Dish {
     nutrition: NutritionalInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Section {
     name: String,
     dishes: Vec<Dish>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Mealplan {
+    menu: Vec<Section>,
+}
+
+pub enum Format {
+    Table,
+    Json,
+}
+
+impl Mealplan {
+    pub fn parse_menu(html_content: &str) -> Self {
+        let document = Html::parse_document(html_content);
+        let section_selector = Selector::parse("div.gruppenkopf").unwrap();
+        let name_selector = Selector::parse("div.gruppenname").unwrap();
+        let dish_text_selector = Selector::parse("div[style*='width:92%']").unwrap();
+        let icon_selector = Selector::parse("img").unwrap();
+        let price_selector = Selector::parse("span").unwrap();
+
+        let mut menu = Vec::new();
+        let mut current_section: Option<Section> = None;
+
+        for element in document.select(&section_selector) {
+            // If we have a previous section, push it to the menu
+            if let Some(section) = current_section {
+                menu.push(section);
+            }
+
+            // Create new section
+            let section_name = element
+                .select(&name_selector)
+                .next()
+                .unwrap()
+                .text()
+                .collect::<String>();
+
+            current_section = Some(Section {
+                name: section_name,
+                dishes: Vec::new(),
+            });
+
+            // Find all dishes until next section
+            let mut next_sibling = element.next_sibling();
+            while let Some(node) = next_sibling {
+                if let Some(elem) = node.value().as_element() {
+                    if elem.has_class(
+                        "gruppenkopf",
+                        scraper::CaseSensitivity::AsciiCaseInsensitive,
+                    ) {
+                        break;
+                    }
+
+                    if elem.has_class("splMeal", scraper::CaseSensitivity::AsciiCaseInsensitive) {
+                        let elem_ref = scraper::ElementRef::wrap(node).unwrap();
+
+                        let dish_text = elem_ref
+                            .select(&dish_text_selector)
+                            .next()
+                            .unwrap()
+                            .text()
+                            .collect::<String>();
+
+                        let dietary_info: HashSet<String> = elem_ref
+                            .select(&icon_selector)
+                            .filter_map(|icon| icon.value().attr("title"))
+                            .map(String::from)
+                            .collect();
+
+                        let prices = elem_ref
+                            .select(&price_selector)
+                            .find(|span| span.text().collect::<String>().contains('€'))
+                            .map(|span| extract_prices(&span.text().collect::<String>()))
+                            .unwrap_or(Prices {
+                                student: 0.0,
+                                employee: 0.0,
+                                guest: 0.0,
+                            });
+
+                        if let Some((dish, co2, nutrition)) =
+                            extract_name_co2_nutritional_info(&dish_text)
+                        {
+                            if let Some(section) = &mut current_section {
+                                section.dishes.push(Dish {
+                                    name: dish,
+                                    co2,
+                                    dietary_info,
+                                    prices,
+                                    nutrition,
+                                });
+                            }
+                        }
+                    }
+                }
+                next_sibling = node.next_sibling();
+            }
+        }
+
+        if let Some(section) = current_section {
+            menu.push(section);
+        }
+
+        Mealplan { menu }
+    }
+
+    pub fn display(&self, format: Format) -> String {
+        match format {
+            Format::Table => display_menu_table(&self.menu),
+            Format::Json => serde_json::to_string_pretty(&self.menu).unwrap(),
+        }
+    }
+}
+
+fn display_menu_table(menu: &[Section]) -> String {
+    let mut table = Table::new();
+    table.add_row(row!["Kategorie", "Gericht", "CO2", "Info", "kcal", "Preis"]);
+    for section in menu {
+        for dish in &section.dishes {
+            table.add_row(Row::new(vec![
+                Cell::new(&section.name),
+                Cell::new(&dish.name),
+                Cell::new(&format!("{}g", dish.co2)),
+                Cell::new(
+                    &dish
+                        .dietary_info
+                        .iter()
+                        .fold(String::new(), |acc, el| acc + el + ", "),
+                ),
+                Cell::new(&format!("{:.2}", dish.nutrition.energy_kcal)),
+                Cell::new(&format!(
+                    "{:.2}€|{:.2}€|{:.2}€",
+                    dish.prices.student, dish.prices.employee, dish.prices.guest
+                )),
+            ]));
+        }
+    }
+
+    table.to_string()
 }
 
 fn extract_prices(price_text: &str) -> Prices {
@@ -128,124 +268,4 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
             salt,
         },
     ))
-}
-
-pub fn parse_menu(html_content: &str) -> Vec<Section> {
-    let document = Html::parse_document(html_content);
-    let section_selector = Selector::parse("div.gruppenkopf").unwrap();
-    let name_selector = Selector::parse("div.gruppenname").unwrap();
-    let dish_text_selector = Selector::parse("div[style*='width:92%']").unwrap();
-    let icon_selector = Selector::parse("img").unwrap();
-    let price_selector = Selector::parse("span").unwrap();
-
-    let mut menu = Vec::new();
-    let mut current_section: Option<Section> = None;
-
-    for element in document.select(&section_selector) {
-        // If we have a previous section, push it to the menu
-        if let Some(section) = current_section {
-            menu.push(section);
-        }
-
-        // Create new section
-        let section_name = element
-            .select(&name_selector)
-            .next()
-            .unwrap()
-            .text()
-            .collect::<String>();
-
-        current_section = Some(Section {
-            name: section_name,
-            dishes: Vec::new(),
-        });
-
-        // Find all dishes until next section
-        let mut next_sibling = element.next_sibling();
-        while let Some(node) = next_sibling {
-            if let Some(elem) = node.value().as_element() {
-                if elem.has_class(
-                    "gruppenkopf",
-                    scraper::CaseSensitivity::AsciiCaseInsensitive,
-                ) {
-                    break;
-                }
-
-                if elem.has_class("splMeal", scraper::CaseSensitivity::AsciiCaseInsensitive) {
-                    let elem_ref = scraper::ElementRef::wrap(node).unwrap();
-
-                    let dish_text = elem_ref
-                        .select(&dish_text_selector)
-                        .next()
-                        .unwrap()
-                        .text()
-                        .collect::<String>();
-
-                    let dietary_info: HashSet<String> = elem_ref
-                        .select(&icon_selector)
-                        .filter_map(|icon| icon.value().attr("title"))
-                        .map(String::from)
-                        .collect();
-
-                    let prices = elem_ref
-                        .select(&price_selector)
-                        .find(|span| span.text().collect::<String>().contains('€'))
-                        .map(|span| extract_prices(&span.text().collect::<String>()))
-                        .unwrap_or(Prices {
-                            student: 0.0,
-                            employee: 0.0,
-                            guest: 0.0,
-                        });
-
-                    if let Some((dish, co2, nutrition)) =
-                        extract_name_co2_nutritional_info(&dish_text)
-                    {
-                        if let Some(section) = &mut current_section {
-                            section.dishes.push(Dish {
-                                name: dish,
-                                co2,
-                                dietary_info,
-                                prices,
-                                nutrition,
-                            });
-                        }
-                    }
-                }
-            }
-            next_sibling = node.next_sibling();
-        }
-    }
-
-    if let Some(section) = current_section {
-        menu.push(section);
-    }
-
-    menu
-}
-
-pub fn display_menu_table(menu: &[Section]) -> String {
-    let mut table = Table::new();
-    table.add_row(row!["Kategorie", "Gericht", "CO2", "Info", "kcal", "Preis"]);
-    for section in menu {
-        for dish in &section.dishes {
-            table.add_row(Row::new(vec![
-                Cell::new(&section.name),
-                Cell::new(&dish.name),
-                Cell::new(&format!("{}g", dish.co2)),
-                Cell::new(
-                    &dish
-                        .dietary_info
-                        .iter()
-                        .fold(String::new(), |acc, el| acc + el + ", "),
-                ),
-                Cell::new(&format!("{:.2}", dish.nutrition.energy_kcal)),
-                Cell::new(&format!(
-                    "{:.2}€|{:.2}€|{:.2}€",
-                    dish.prices.student, dish.prices.employee, dish.prices.guest
-                )),
-            ]));
-        }
-    }
-
-    table.to_string()
 }
