@@ -6,6 +6,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
+// Compile Regex one time only.
 static RE_CO2: Lazy<Regex> = Lazy::new(|| Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap());
 static RE_ENERGY: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"([0-9,]+) kJ \/ ([0-9,]+) kcal").unwrap());
@@ -24,9 +25,9 @@ struct NutritionalInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Prices {
-    student: f32,
-    employee: f32,
-    guest: f32,
+    student: f64,
+    employee: f64,
+    guest: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,7 +185,7 @@ fn display_menu_table(menu: &[Section]) -> String {
 }
 
 fn extract_prices(price_text: &str) -> Prices {
-    let price_parts: Vec<f32> = price_text
+    let price_parts: Vec<f64> = price_text
         .split('|')
         .filter_map(|part| {
             part.trim()

@@ -8,9 +8,9 @@ async fn main() {
     let args = cli::get_args();
     let client = reqwest::Client::new();
 
-    let days = Duration::days(args.days as i64);
+    let days_offset = Duration::days(args.days as i64);
     let date = OffsetDateTime::now_utc()
-        .saturating_add(days)
+        .saturating_add(days_offset)
         .date()
         .to_string();
     let form = [
