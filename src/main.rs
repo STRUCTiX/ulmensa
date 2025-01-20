@@ -1,6 +1,5 @@
 mod cli;
 
-use time::{Duration, OffsetDateTime};
 use ulmensa_lib::{Format, Mealplan};
 
 #[tokio::main]
