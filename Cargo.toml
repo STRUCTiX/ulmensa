@@ -2,7 +2,7 @@
 name = "ulmensa"
 version = "0.1.0"
 edition = "2021"
-license = "GPL"
+license = "GPL-3.0-or-later"
 authors = ["structix"]
 description = "A command-line utility for retrieving and displaying current meal plans from the University of Ulm canteen."
 repository = "https://github.com/STRUCTiX/ulmensa"
