@@ -16,39 +16,39 @@ static RE_GRAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"([0-9,]+) g").unwrap());
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct NutritionalInfo {
-    energy_kj: f64,
-    energy_kcal: f64,
-    protein: f64,
-    fat: Vec<f64>,
-    carbohydrates: Vec<f64>,
-    salt: f64,
+    pub energy_kj: f64,
+    pub energy_kcal: f64,
+    pub protein: f64,
+    pub fat: Vec<f64>,
+    pub carbohydrates: Vec<f64>,
+    pub salt: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Prices {
-    student: f64,
-    employee: f64,
-    guest: f64,
+    pub student: f64,
+    pub employee: f64,
+    pub guest: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Dish {
-    name: String,
-    co2: i32,
-    dietary_info: HashSet<String>,
-    prices: Prices,
-    nutrition: NutritionalInfo,
+    pub name: String,
+    pub co2: i32,
+    pub dietary_info: HashSet<String>,
+    pub prices: Prices,
+    pub nutrition: NutritionalInfo,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Section {
-    name: String,
-    dishes: Vec<Dish>,
+    pub name: String,
+    pub dishes: Vec<Dish>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mealplan {
-    menu: Vec<Section>,
+    pub menu: Vec<Section>,
 }
 
 pub enum Format {
