@@ -15,7 +15,7 @@ static RE_GRAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"([0-9,]+) g").unwrap());
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
-struct NutritionalInfo {
+pub struct NutritionalInfo {
     pub energy_kj: f64,
     pub energy_kcal: f64,
     pub protein: f64,
@@ -25,14 +25,14 @@ struct NutritionalInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Prices {
+pub struct Prices {
     pub student: f64,
     pub employee: f64,
     pub guest: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Dish {
+pub struct Dish {
     pub name: String,
     pub co2: i32,
     pub dietary_info: HashSet<String>,
