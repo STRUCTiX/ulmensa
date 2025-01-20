@@ -5,6 +5,7 @@ use prettytable::{row, Cell, Row, Table};
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use time::{Duration, OffsetDateTime};
 
 // Compile Regex one time only.
 static RE_CO2: Lazy<Regex> = Lazy::new(|| Regex::new(r"abdruck pro Portion ([0-9\.]+)").unwrap());
@@ -57,97 +58,33 @@ pub enum Format {
 }
 
 impl Mealplan {
-    pub fn parse_menu(html_content: &str) -> Self {
-        let document = Html::parse_document(html_content);
-        let section_selector = Selector::parse("div.gruppenkopf").unwrap();
-        let name_selector = Selector::parse("div.gruppenname").unwrap();
-        let dish_text_selector = Selector::parse("div[style*='width:92%']").unwrap();
-        let icon_selector = Selector::parse("img").unwrap();
-        let price_selector = Selector::parse("span").unwrap();
+    pub async fn from(day_offset: u8) -> Self {
+        let days_offset = Duration::days(day_offset as i64);
+        let date = OffsetDateTime::now_utc()
+            .saturating_add(days_offset)
+            .date()
+            .to_string();
+        let form = [
+            ("func", "make_spl"),
+            ("locId", "1"),
+            ("date", &date),
+            ("lang", "de"),
+            ("startThisWeek", &date),
+            ("startNextWeek", &date),
+        ];
 
-        let mut menu = Vec::new();
-        let mut current_section: Option<Section> = None;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post("https://sw-ulm-spl51.maxmanager.xyz/inc/ajax-php_konnektor.inc.php")
+            .form(&form)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
 
-        for element in document.select(&section_selector) {
-            // If we have a previous section, push it to the menu
-            if let Some(section) = current_section {
-                menu.push(section);
-            }
-
-            // Create new section
-            let section_name = element
-                .select(&name_selector)
-                .next()
-                .unwrap()
-                .text()
-                .collect::<String>();
-
-            current_section = Some(Section {
-                name: section_name,
-                dishes: Vec::new(),
-            });
-
-            // Find all dishes until next section
-            let mut next_sibling = element.next_sibling();
-            while let Some(node) = next_sibling {
-                if let Some(elem) = node.value().as_element() {
-                    if elem.has_class(
-                        "gruppenkopf",
-                        scraper::CaseSensitivity::AsciiCaseInsensitive,
-                    ) {
-                        break;
-                    }
-
-                    if elem.has_class("splMeal", scraper::CaseSensitivity::AsciiCaseInsensitive) {
-                        let elem_ref = scraper::ElementRef::wrap(node).unwrap();
-
-                        let dish_text = elem_ref
-                            .select(&dish_text_selector)
-                            .next()
-                            .unwrap()
-                            .text()
-                            .collect::<String>();
-
-                        let dietary_info: HashSet<String> = elem_ref
-                            .select(&icon_selector)
-                            .filter_map(|icon| icon.value().attr("title"))
-                            .map(String::from)
-                            .collect();
-
-                        let prices = elem_ref
-                            .select(&price_selector)
-                            .find(|span| span.text().collect::<String>().contains('€'))
-                            .map(|span| extract_prices(&span.text().collect::<String>()))
-                            .unwrap_or(Prices {
-                                student: 0.0,
-                                employee: 0.0,
-                                guest: 0.0,
-                            });
-
-                        if let Some((dish, co2, nutrition)) =
-                            extract_name_co2_nutritional_info(&dish_text)
-                        {
-                            if let Some(section) = &mut current_section {
-                                section.dishes.push(Dish {
-                                    name: dish,
-                                    co2,
-                                    dietary_info,
-                                    prices,
-                                    nutrition,
-                                });
-                            }
-                        }
-                    }
-                }
-                next_sibling = node.next_sibling();
-            }
-        }
-
-        if let Some(section) = current_section {
-            menu.push(section);
-        }
-
-        Mealplan { menu }
+        parse_menu(&resp)
     }
 
     pub fn display(&self, format: Format) -> String {
@@ -319,4 +256,97 @@ fn extract_name_co2_nutritional_info(input: &str) -> Option<(String, i32, Nutrit
             salt,
         },
     ))
+}
+
+pub fn parse_menu(html_content: &str) -> Mealplan {
+    let document = Html::parse_document(html_content);
+    let section_selector = Selector::parse("div.gruppenkopf").unwrap();
+    let name_selector = Selector::parse("div.gruppenname").unwrap();
+    let dish_text_selector = Selector::parse("div[style*='width:92%']").unwrap();
+    let icon_selector = Selector::parse("img").unwrap();
+    let price_selector = Selector::parse("span").unwrap();
+
+    let mut menu = Vec::new();
+    let mut current_section: Option<Section> = None;
+
+    for element in document.select(&section_selector) {
+        // If we have a previous section, push it to the menu
+        if let Some(section) = current_section {
+            menu.push(section);
+        }
+
+        // Create new section
+        let section_name = element
+            .select(&name_selector)
+            .next()
+            .unwrap()
+            .text()
+            .collect::<String>();
+
+        current_section = Some(Section {
+            name: section_name,
+            dishes: Vec::new(),
+        });
+
+        // Find all dishes until next section
+        let mut next_sibling = element.next_sibling();
+        while let Some(node) = next_sibling {
+            if let Some(elem) = node.value().as_element() {
+                if elem.has_class(
+                    "gruppenkopf",
+                    scraper::CaseSensitivity::AsciiCaseInsensitive,
+                ) {
+                    break;
+                }
+
+                if elem.has_class("splMeal", scraper::CaseSensitivity::AsciiCaseInsensitive) {
+                    let elem_ref = scraper::ElementRef::wrap(node).unwrap();
+
+                    let dish_text = elem_ref
+                        .select(&dish_text_selector)
+                        .next()
+                        .unwrap()
+                        .text()
+                        .collect::<String>();
+
+                    let dietary_info: HashSet<String> = elem_ref
+                        .select(&icon_selector)
+                        .filter_map(|icon| icon.value().attr("title"))
+                        .map(String::from)
+                        .collect();
+
+                    let prices = elem_ref
+                        .select(&price_selector)
+                        .find(|span| span.text().collect::<String>().contains('€'))
+                        .map(|span| extract_prices(&span.text().collect::<String>()))
+                        .unwrap_or(Prices {
+                            student: 0.0,
+                            employee: 0.0,
+                            guest: 0.0,
+                        });
+
+                    if let Some((dish, co2, nutrition)) =
+                        extract_name_co2_nutritional_info(&dish_text)
+                    {
+                        if let Some(section) = &mut current_section {
+                            section.dishes.push(Dish {
+                                name: dish,
+                                co2,
+                                dietary_info,
+                                prices,
+                                nutrition,
+                            });
+                        }
+                    }
+                }
+            }
+            next_sibling = node.next_sibling();
+        }
+    }
+
+    if let Some(section) = current_section {
+        menu.push(section);
+    }
+
+    Mealplan { menu }
 }
