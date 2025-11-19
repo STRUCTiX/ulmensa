@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use once_cell::sync::Lazy;
-use prettytable::{row, Cell, Row, Table};
+use prettytable::{Cell, Row, Table, row};
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -327,16 +327,15 @@ pub fn parse_menu(html_content: &str) -> Mealplan {
 
                     if let Some((dish, co2, nutrition)) =
                         extract_name_co2_nutritional_info(&dish_text)
+                        && let Some(section) = &mut current_section
                     {
-                        if let Some(section) = &mut current_section {
-                            section.dishes.push(Dish {
-                                name: dish,
-                                co2,
-                                dietary_info,
-                                prices,
-                                nutrition,
-                            });
-                        }
+                        section.dishes.push(Dish {
+                            name: dish,
+                            co2,
+                            dietary_info,
+                            prices,
+                            nutrition,
+                        });
                     }
                 }
             }
